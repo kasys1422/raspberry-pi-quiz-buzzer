@@ -1,0 +1,27 @@
+.program button_monitor
+    ; 初期化
+    in pins, 16      ; 32ビットのピンの状態を読み取る（ISRにロード）
+    in null, 16
+    mov x, isr      ; 読み取ったピンの状態をXに保存
+
+start1:
+    in pins, 16      ; 再度32ビットのピンの状態を読み取る
+    in null, 16
+    mov y, isr      ; 読み取った状態をYに保存
+    jmp x!=y, edge1  ; XとYが異なっていればエッジ検出（XORで差異を判断）
+    jmp start2       ; 状態が変わっていない場合は次のステートへ
+
+edge1:
+    push             ; エッジを検知したのでFIFOにプッシュ
+    jmp start2       ; 次のステートへ
+
+start2:
+    in pins, 16      ; 再度32ビットのピンの状態を読み取る
+    in null, 16
+    mov x, isr      ; 読み取った状態をXに保存
+    jmp x!=y, edge2  ; XとYが異なっていればエッジ検出
+    jmp start1       ; 状態が変わっていない場合は最初に戻る
+
+edge2:
+    push             ; エッジを検知したのでFIFOにプッシュ
+    jmp start1       ; 最初に戻る

@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>木苺式クイズ早押し機</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            width: 90vw;
+            height: 90vh;
+            display: grid;
+            grid-template-columns: 33% 33% 33%;
+            grid-template-rows: 15% 70% 15%;
+            gap: 10px;
+        }
+
+        .header {
+            grid-column: 1 / span 3;
+            background-color: #eee;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .header-title {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .connection-button {
+            margin-bottom: 10px;
+        }
+
+        .first-pressed {
+            grid-row: 2 / span 1;
+            grid-column: 2 / span 1;
+            background-color: #e3f2fd;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 12rem;
+            color: #0d47a1;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        .first-pressed .description {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+
+        .pressed-list {
+            grid-row: 2 / span 1;
+            grid-column: 1 / span 1;
+            background-color: #f1f8e9;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        .pressed-list .scroll-area {
+            width: 100%;
+            height: calc(100% - 50px);
+            overflow-y: auto;
+        }
+
+        .pressed-list .description {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .score-board {
+            grid-row: 2 / span 1;
+            grid-column: 3 / span 1;
+            background-color: #fff3e0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        .score-board .scroll-area {
+            width: 100%;
+            height: calc(100% - 50px);
+            overflow-y: auto;
+        }
+
+        .score-board .description {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .controller {
+            grid-row: 3 / span 1;
+            grid-column: 1 / span 3;
+            background-color: #ffebee;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            height: 60%;
+        }
+
+        .controller button {
+            margin: 10px;
+            width: 170px;
+        }
+
+        .controller button.connected {
+            background-color: #4caf50 !important;
+            color: white;
+        }
+
+        .controller button.disconnected {
+            background-color: #f44336 !important;
+            color: white;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid #ccc;
+        }
+
+        th,
+        td {
+            padding: 5px;
+            text-align: center;
+        }
+
+        .info-button {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- ライセンス表示 -->
+        <div class="info-button">
+            <button class="btn-floating btn-small blue modal-trigger" data-target="licenseModal">
+                <i class="material-icons">info</i>
+            </button>
+        </div>
+        <div id="licenseModal" class="modal">
+            <div class="modal-content">
+                <h4>ライセンス情報</h4>
+                <hr>
+                <p>
+                    <a href="https://github.com/kasys1422/raspberry-pi-quiz-buzzer" target="_blank">raspberry-pi-quiz-buzzer</a> (GPLv3)<br>
+                    <a href="https://github.com/kasys1422/raspberry-pi-quiz-buzzer/blob/main/LICENSE" target="_blank">https://github.com/kasys1422/raspberry-pi-quiz-buzzer/blob/main/LICENSE</a><br><br>
+                </p>
+                <p>
+                    <strong>サードパーティライセンス</strong> <br>
+                    <hr>
+                    1. Material Icons: Apache License Version 2.0<br>
+                    <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank">https://www.apache.org/licenses/LICENSE-2.0</a><br><br>
+                    2. Materialize CSS: MIT License<br>
+                    <a href="https://opensource.org/licenses/MIT" target="_blank">https://opensource.org/licenses/MIT</a><br><br>
+                    3. OtoLogic: CC BY 4.0<br>
+                    <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">https://creativecommons.org/licenses/by/4.0/</a><br><br>
+                    4. arduino-pico: LGPL-2.1 License<br>
+                    <a href="https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html" target="_blank">https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html</a>
+                </p>
+            </div>
+            <div class="modal-footer">
+                <a href="#!" class="modal-close waves-effect waves-green btn-flat">閉じる</a>
+            </div>
+        </div>
+        <!-- タイトルとデバイス接続ボタン -->
+        <div class="header">
+            <div class="header-title">木苺式クイズ早押し機</div>
+            <button id="connectionButton" class="btn connection-button blue lighten-2 disconnected"
+                onclick="app.toggleConnection()"><i class="material-icons left">bluetooth</i>Bluetooth接続（未接続）</button>
+        </div>
+        <!-- 早押しボタンを押した人を順番に表示するエリア -->
+        <div class="pressed-list">
+            <div class="description">早押しボタンを押した順番</div>
+            <div class="scroll-area">
+                <ul id="pressedList" class="collection">
+                    <!-- <li class="collection-item">1️⃣ - 0.453秒</li>
+                    <li class="collection-item">3️⃣ - 0.478秒</li>
+                    <li class="collection-item">2️⃣ - 0.512秒</li> -->
+                </ul>
+            </div>
+        </div>
+        <!-- 一番早く押した人の番号を表示するエリア -->
+        <div class="first-pressed">
+            <div class="description">回答者</div>
+            <div id="firstPressed">-</div>
+        </div>
+        <!-- プレイヤーごとの正解数と誤回答数 -->
+        <div class="score-board">
+            <div class="description">プレイヤーのスコア</div>
+            <div class="scroll-area">
+                <table id="scoreTable">
+                    <thead>
+                        <tr>
+                            <th>プレイヤー</th>
+                            <th style="color: #ff4336;">正解数 ◯</th>
+                            <th style="color: #3647ff;">誤答数 ✕</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>プレイヤー1</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー2</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー3</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー4</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー5</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー6</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー7</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー8</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー9</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>プレイヤー10</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <!-- デバイスコントローラ -->
+        <div class="controller">
+            <button class="btn red lighten-2" onclick="app.resetPressedList()"><i
+                    class="material-icons left">refresh</i>リセット</button>
+            <button class="btn blue lighten-2" onclick="app.addPressedEntry()"><i
+                    class="material-icons left">play_arrow</i>出題</button>
+            <button class="btn green lighten-2" onclick="app.updateScore('正解')"><i
+                    class="material-icons left">check</i>正解</button>
+            <button class="btn red lighten-2" onclick="app.updateScore('不正解')"><i
+                    class="material-icons left">close</i>不正解</button>
+            <button class="btn orange lighten-2" onclick="app.resetScores()"><i
+                    class="material-icons left">autorenew</i>スコアリセット</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+    <script>
+        let time_interval = 250;
+        let ranking;
+        let ranking_index = 0;
+        class AudioPlayer {
+            constructor(src, volume = 1.0, loop = false) {
+                this.audio = new Audio(src);  // 音声ファイルのパス
+                this.audio.volume = volume;   // 音量の初期値
+                this.audio.loop = loop;       // ループの設定
+            }
+
+            // 効果音を再生する
+            play() {
+                this.audio.currentTime = 0; // 再生位置をリセット
+                this.audio.play();
+            }
+
+            // 効果音を一時停止する
+            pause() {
+                this.audio.pause();
+            }
+
+            // 効果音の再生を停止し、位置をリセット
+            stop() {
+                this.audio.pause();
+                this.audio.currentTime = 0;
+            }
+
+            // 音量を設定する
+            setVolume(volume) {
+                this.audio.volume = volume;
+            }
+
+            // ループの設定を変更する
+            setLoop(loop) {
+                this.audio.loop = loop;
+            }
+
+            // 効果音が終了したときの処理を設定
+            onEnded(callback) {
+                this.audio.addEventListener("ended", callback);
+            }
+        }
+
+        // 効果音 (適宜ソースを用意してください|sampleではOtoLogicの効果音を使用)
+        // 正解音
+        const correctSound = new AudioPlayer("./sound/Quiz-Buzzer01-1.mp3");
+        // 不正解音
+        const incorrectSound = new AudioPlayer("./sound/Quiz-Wrong_Buzzer01-1.mp3");
+        // 回答音
+        const answerSound = new AudioPlayer("./sound/Quiz-Buzzer02-1.mp3");
+        // 出題音
+        const questionSound = new AudioPlayer("./sound/Quiz-Question03-1.mp3");
+
+        class PicoController {
+            constructor() {
+                this.picoDevice = null;
+                this.characteristic = null;
+                this.serviceUuid = "b8e06067-62ad-41ba-9231-206ae80ab551";
+                this.characteristicUuid = "f897177b-aee8-4767-8ecc-cc694fd5fce0";
+                this.pollingInterval = null;
+            }
+
+            async connect() {
+                try {
+                    this.picoDevice = await navigator.bluetooth.requestDevice({
+                        acceptAllDevices: true,
+                        optionalServices: [this.serviceUuid]
+                    });
+                    const server = await this.picoDevice.gatt.connect();
+                    const service = await server.getPrimaryService(this.serviceUuid);
+                    this.characteristic = await service.getCharacteristic(this.characteristicUuid);
+                    app.updateConnectionUI(true);
+                    this.startPolling();
+                } catch (error) {
+                    console.error("接続に失敗しました:", error);
+                }
+            }
+
+            startPolling() {
+                this.pollingInterval = setInterval(async () => {
+                    if (this.characteristic) {
+                        await this.getButtonPressHistory();
+                    }
+                }, time_interval);
+            }
+
+            async getButtonPressHistory() {
+                try {
+                    const value = await this.characteristic.readValue();
+                    this.displayButtonPressHistory(value);
+                } catch (error) {
+                    console.error("ボタン履歴の取得に失敗:", error);
+                }
+            }
+
+            displayButtonPressHistory(dataView) {
+                let rankings = [];
+                for (let i = 0; i < dataView.byteLength; i += 5) {
+                    const buttonId = dataView.getUint8(i);
+                    const timestamp = dataView.getUint32(i + 1, false);
+                    rankings.push({ buttonId, timestamp });
+                }
+                ranking = rankings;
+                app.displayRankings(rankings);
+            }
+
+            async sendResetCommand() {
+                try {
+                    const resetCommand = new Uint8Array([0x52]);
+                    await this.characteristic.writeValue(resetCommand);
+                } catch (error) {
+                    console.log(`リセットコマンドの送信に失敗:${error}\nリセットコマンドの再送信を行います`,);
+                    // エラーを伝搬
+                    throw error;
+                }
+            }
+        }
+
+        class QuizApp {
+            constructor() {
+                this.picoController = new PicoController();
+                // 初期時間を設定
+                this.time_from_reset = new Date().getTime();
+            }
+
+            async toggleConnection() {
+                if (document.getElementById('connectionButton').classList.contains('disconnected')) {
+                    await this.picoController.connect();
+                } else {
+                    this.updateConnectionUI(false);
+                }
+            }
+
+            updateConnectionUI(connected) {
+                const button = document.getElementById('connectionButton');
+                if (connected) {
+                    button.classList.remove('disconnected');
+                    button.classList.add('connected');
+                    button.innerHTML = '<i class="material-icons left">bluetooth</i>Bluetooth接続（接続済み）';
+                } else {
+                    button.classList.remove('connected');
+                    button.classList.add('disconnected');
+                    button.innerHTML = '<i class="material-icons left">bluetooth</i>Bluetooth接続（未接続）';
+                }
+            }
+
+            // 押されたボタンリストをリセット
+            async resetPressedList() {
+                const pressedList = document.getElementById('pressedList');
+                pressedList.innerHTML = '';
+                document.getElementById('firstPressed').innerHTML = '-';
+                time_interval = 250;
+                ranking_index = 0;
+                this.time_from_reset = new Date().getTime();
+                try {
+                    await this.picoController.sendResetCommand(); // リセットコマンドをPicoに送信
+                } catch (e) {
+                    // 遅延の後に再送信
+                    setTimeout(() => {
+                        this.resetPressedList();
+                    }, 100);
+                }
+
+            }
+
+            // ボタン押下順のエントリを追加
+            addPressedEntry() {
+                questionSound.play();
+                this.resetPressedList(); // 早押しボタンを押した順番をリセット
+            }
+
+            // スコアを更新する関数（正解・不正解のタイプに応じて）
+            updateScore(type) {
+                // 早押しボタンが押されていない場合は何もしない
+                if (ranking[ranking_index]['buttonId'] == 0) {
+                    return;
+                }
+                const scoreTable = document.getElementById('scoreTable').getElementsByTagName('tbody')[0];
+                const row = scoreTable.rows[Math.floor(document.getElementById('firstPressed').textContent - 1)];
+                const scoreCell = type === '正解' ? row.cells[1] : row.cells[2];
+                scoreCell.textContent = parseInt(scoreCell.textContent) + 1;
+                // 効果音
+                if (type === '正解') {
+                    correctSound.play();
+                } else {
+                    incorrectSound.play();
+                }
+                if (type === '不正解') {
+                    ranking_index++;
+                    let next_button = ranking[ranking_index];
+                    if (next_button['buttonId'] != 0) {
+                        document.getElementById('firstPressed').textContent = next_button['buttonId'];
+                        time_interval = 1000;
+                    } else {
+                        document.getElementById('firstPressed').textContent = '-';
+                        time_interval = 250;
+                    }
+                }
+            }
+
+            // スコアをリセットする
+            resetScores() {
+                const scoreTable = document.getElementById('scoreTable').getElementsByTagName('tbody')[0];
+                for (let row of scoreTable.rows) {
+                    row.cells[1].textContent = '0';
+                    row.cells[2].textContent = '0';
+                }
+            }
+
+            displayRankings(rankings) {
+                // ランキング表示を更新
+                document.getElementById('pressedList').innerHTML = '';
+                rankings.forEach((rank, index) => {
+                    if (rank.buttonId != 0) {
+                        const item = document.createElement('li');
+                        item.classList.add('collection-item');
+                        item.textContent = `${(rank.buttonId - 1) + 1}️⃣ - ${rank.timestamp / 1e6}秒`;
+                        document.getElementById('pressedList').appendChild(item);
+                        if (index === ranking_index) {
+                            if (document.getElementById('firstPressed').textContent != rank.buttonId) {
+                                // リセットボタンを押してから0.5秒以上経過していない場合は効果音を再生しない
+                                if (new Date().getTime() - this.time_from_reset > 500) {
+                                    answerSound.play();
+                                }
+                            }
+                            document.getElementById('firstPressed').textContent = rank.buttonId;
+
+                            time_interval = 1000
+                        }
+                    }
+
+                });
+            }
+        }
+
+
+
+        const app = new QuizApp();
+
+        document.addEventListener('DOMContentLoaded', function () {
+            var elems = document.querySelectorAll('.modal');
+            M.Modal.init(elems);
+        });
+    </script>
+</body>
+
+</html>
