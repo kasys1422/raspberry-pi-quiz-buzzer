@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>木苺式クイズ早押し機 改1型</title>
+    <title>木苺式クイズ早押し機</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
     <style>
@@ -210,7 +210,7 @@
         </div>
         <!-- タイトルとデバイス接続ボタン -->
         <div class="header">
-            <div class="header-title">木苺式クイズ早押し機 改1型</div>
+            <div class="header-title">木苺式クイズ早押し機</div>
             <button id="connectionButton" class="btn connection-button blue lighten-2 disconnected"
                 onclick="app.toggleConnection()"><i class="material-icons left">bluetooth</i>Bluetooth接続（未接続）</button>
         </div>
@@ -318,8 +318,8 @@
         let time_interval = 250;
         let ranking = [];
         let ranking_index = 0;
+        const DEFAULT_CHANNEL_COUNT = 11;
         const LEGACY_CHANNEL_COUNT = 16;
-        const KIICHIGO_KAI1_CHANNEL_COUNT = 11;
 
         const circledNumbers = {
             1: '①', 2: '②', 3: '③', 4: '④', 5: '⑤',
@@ -387,24 +387,23 @@
                 this.characteristic = null;
                 this.serviceUuid = "b8e06067-62ad-41ba-9231-206ae80ab551";
                 this.characteristicUuid = "f897177b-aee8-4767-8ecc-cc694fd5fce0";
-                this.fullServiceUuid = "46454f4e-452d-424c-452d-000000000001";
                 this.pollingInterval = null;
                 this.gattOperation = Promise.resolve();
                 this.historyReadInProgress = false;
-                this.deviceMode = "legacy";
-                this.channelCount = LEGACY_CHANNEL_COUNT;
+                this.deviceMode = "default";
+                this.channelCount = DEFAULT_CHANNEL_COUNT;
             }
 
             async connect() {
                 try {
                     this.picoDevice = await navigator.bluetooth.requestDevice({
                         acceptAllDevices: true,
-                        optionalServices: [this.serviceUuid, this.fullServiceUuid]
+                        optionalServices: [this.serviceUuid]
                     });
                     const server = await this.picoDevice.gatt.connect();
                     const service = await server.getPrimaryService(this.serviceUuid);
                     this.characteristic = await service.getCharacteristic(this.characteristicUuid);
-                    await this.detectDeviceMode(server);
+                    this.detectDeviceModeFromName();
                     app.updateConnectionUI(true);
                     this.startPolling();
                 } catch (error) {
@@ -412,17 +411,30 @@
                 }
             }
 
-            async detectDeviceMode(server) {
-                try {
-                    await server.getPrimaryService(this.fullServiceUuid);
-                    this.deviceMode = "kiichigo_kai1";
-                    this.channelCount = KIICHIGO_KAI1_CHANNEL_COUNT;
-                } catch (error) {
+            detectDeviceModeFromName() {
+                const name = this.picoDevice ? (this.picoDevice.name || "") : "";
+                const isNewDeviceName = /Kiichigo Quiz K1/i.test(name);
+
+                if (name && !isNewDeviceName) {
                     this.deviceMode = "legacy";
                     this.channelCount = LEGACY_CHANNEL_COUNT;
+                } else {
+                    this.deviceMode = "default";
+                    this.channelCount = DEFAULT_CHANNEL_COUNT;
                 }
 
                 app.setChannelCount(this.channelCount, this.deviceMode);
+            }
+
+            noteLegacyDetected() {
+                if (this.deviceMode === "legacy") {
+                    return;
+                }
+
+                this.deviceMode = "legacy";
+                this.channelCount = LEGACY_CHANNEL_COUNT;
+                app.setChannelCount(this.channelCount, this.deviceMode);
+                app.updateConnectionUI(true);
             }
 
             disconnect() {
@@ -437,8 +449,8 @@
 
                 this.characteristic = null;
                 this.picoDevice = null;
-                this.deviceMode = "legacy";
-                this.channelCount = LEGACY_CHANNEL_COUNT;
+                this.deviceMode = "default";
+                this.channelCount = DEFAULT_CHANNEL_COUNT;
                 app.setChannelCount(this.channelCount, this.deviceMode);
             }
 
@@ -481,6 +493,9 @@
                 for (let i = 0; (i + 4) < dataView.byteLength; i += 5) {
                     const buttonId = dataView.getUint8(i);
                     const timestamp = dataView.getUint32(i + 1, false);
+                    if (buttonId > DEFAULT_CHANNEL_COUNT && buttonId <= LEGACY_CHANNEL_COUNT) {
+                        this.noteLegacyDetected();
+                    }
                     if (buttonId > app.channelCount) {
                         continue;
                     }
@@ -522,8 +537,8 @@
         class QuizApp {
             constructor() {
                 this.picoController = new PicoController();
-                this.channelCount = LEGACY_CHANNEL_COUNT;
-                this.deviceMode = "legacy";
+                this.channelCount = DEFAULT_CHANNEL_COUNT;
+                this.deviceMode = "default";
                 // 初期時間を設定
                 this.time_from_reset = new Date().getTime();
                 this.renderScoreRows();
@@ -540,7 +555,7 @@
 
             updateConnectionUI(connected) {
                 const button = document.getElementById('connectionButton');
-                const modeLabel = this.deviceMode === "kiichigo_kai1" ? `新型 ${this.channelCount}ch` : `旧式 ${this.channelCount}ch`;
+                const modeLabel = this.deviceMode === "legacy" ? `旧式 ${this.channelCount}ch` : `${this.channelCount}ch`;
                 if (connected) {
                     button.classList.remove('disconnected');
                     button.classList.add('connected');
