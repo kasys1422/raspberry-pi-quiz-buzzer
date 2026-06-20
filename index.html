@@ -316,8 +316,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
     <script>
         let time_interval = 250;
-        let ranking;
+        let ranking = [];
         let ranking_index = 0;
+        const LEGACY_CHANNEL_COUNT = 16;
+        const KIICHIGO_KAI1_CHANNEL_COUNT = 11;
 
         const circledNumbers = {
             1: '①', 2: '②', 3: '③', 4: '④', 5: '⑤',
@@ -385,25 +387,42 @@
                 this.characteristic = null;
                 this.serviceUuid = "b8e06067-62ad-41ba-9231-206ae80ab551";
                 this.characteristicUuid = "f897177b-aee8-4767-8ecc-cc694fd5fce0";
+                this.fullServiceUuid = "46454f4e-452d-424c-452d-000000000001";
                 this.pollingInterval = null;
                 this.gattOperation = Promise.resolve();
                 this.historyReadInProgress = false;
+                this.deviceMode = "legacy";
+                this.channelCount = LEGACY_CHANNEL_COUNT;
             }
 
             async connect() {
                 try {
                     this.picoDevice = await navigator.bluetooth.requestDevice({
                         acceptAllDevices: true,
-                        optionalServices: [this.serviceUuid]
+                        optionalServices: [this.serviceUuid, this.fullServiceUuid]
                     });
                     const server = await this.picoDevice.gatt.connect();
                     const service = await server.getPrimaryService(this.serviceUuid);
                     this.characteristic = await service.getCharacteristic(this.characteristicUuid);
+                    await this.detectDeviceMode(server);
                     app.updateConnectionUI(true);
                     this.startPolling();
                 } catch (error) {
                     console.error("接続に失敗しました:", error);
                 }
+            }
+
+            async detectDeviceMode(server) {
+                try {
+                    await server.getPrimaryService(this.fullServiceUuid);
+                    this.deviceMode = "kiichigo_kai1";
+                    this.channelCount = KIICHIGO_KAI1_CHANNEL_COUNT;
+                } catch (error) {
+                    this.deviceMode = "legacy";
+                    this.channelCount = LEGACY_CHANNEL_COUNT;
+                }
+
+                app.setChannelCount(this.channelCount, this.deviceMode);
             }
 
             disconnect() {
@@ -418,6 +437,9 @@
 
                 this.characteristic = null;
                 this.picoDevice = null;
+                this.deviceMode = "legacy";
+                this.channelCount = LEGACY_CHANNEL_COUNT;
+                app.setChannelCount(this.channelCount, this.deviceMode);
             }
 
             startPolling() {
@@ -456,9 +478,12 @@
 
             displayButtonPressHistory(dataView) {
                 let rankings = [];
-                for (let i = 0; i < dataView.byteLength; i += 5) {
+                for (let i = 0; (i + 4) < dataView.byteLength; i += 5) {
                     const buttonId = dataView.getUint8(i);
                     const timestamp = dataView.getUint32(i + 1, false);
+                    if (buttonId > app.channelCount) {
+                        continue;
+                    }
                     rankings.push({ buttonId, timestamp });
                 }
                 ranking = rankings;
@@ -497,8 +522,11 @@
         class QuizApp {
             constructor() {
                 this.picoController = new PicoController();
+                this.channelCount = LEGACY_CHANNEL_COUNT;
+                this.deviceMode = "legacy";
                 // 初期時間を設定
                 this.time_from_reset = new Date().getTime();
+                this.renderScoreRows();
             }
 
             async toggleConnection() {
@@ -512,10 +540,11 @@
 
             updateConnectionUI(connected) {
                 const button = document.getElementById('connectionButton');
+                const modeLabel = this.deviceMode === "kiichigo_kai1" ? `新型 ${this.channelCount}ch` : `旧式 ${this.channelCount}ch`;
                 if (connected) {
                     button.classList.remove('disconnected');
                     button.classList.add('connected');
-                    button.innerHTML = '<i class="material-icons left">bluetooth</i>Bluetooth接続（接続済み）';
+                    button.innerHTML = `<i class="material-icons left">bluetooth</i>Bluetooth接続（接続済み / ${modeLabel}）`;
                 } else {
                     button.classList.remove('connected');
                     button.classList.add('disconnected');
@@ -523,11 +552,44 @@
                 }
             }
 
+            setChannelCount(channelCount, deviceMode) {
+                this.channelCount = channelCount;
+                this.deviceMode = deviceMode;
+                ranking = [];
+                ranking_index = 0;
+                this.renderScoreRows();
+                this.resetPressedDisplay();
+            }
+
+            renderScoreRows() {
+                const tbody = document.getElementById('scoreTable').getElementsByTagName('tbody')[0];
+                tbody.innerHTML = '';
+                for (let player = 1; player <= this.channelCount; player++) {
+                    const row = tbody.insertRow();
+                    row.insertCell().textContent = `プレイヤー${player}`;
+                    row.insertCell().textContent = '0';
+                    row.insertCell().textContent = '0';
+                }
+            }
+
+            resetPressedDisplay() {
+                document.getElementById('pressedList').innerHTML = '';
+                document.getElementById('firstPressed').innerHTML = '-';
+            }
+
+            nextValidRankingIndex(fromIndex) {
+                for (let i = fromIndex; i < ranking.length; i++) {
+                    const buttonId = ranking[i] ? Number(ranking[i].buttonId) : 0;
+                    if (buttonId >= 1 && buttonId <= this.channelCount) {
+                        return i;
+                    }
+                }
+                return -1;
+            }
+
             // 押されたボタンリストをリセット
             async resetPressedList() {
-                const pressedList = document.getElementById('pressedList');
-                pressedList.innerHTML = '';
-                document.getElementById('firstPressed').innerHTML = '-';
+                this.resetPressedDisplay();
                 time_interval = 250;
                 ranking_index = 0;
                 this.time_from_reset = new Date().getTime();
@@ -552,11 +614,15 @@
             // スコアを更新する関数（正解・不正解のタイプに応じて）
             updateScore(type) {
                 // 早押しボタンが押されていない場合は何もしない
-                if (ranking[ranking_index]['buttonId'] == 0) {
+                if (!ranking[ranking_index] || ranking[ranking_index]['buttonId'] == 0) {
                     return;
                 }
                 const scoreTable = document.getElementById('scoreTable').getElementsByTagName('tbody')[0];
-                const row = scoreTable.rows[Math.floor(document.getElementById('firstPressed').textContent - 1)];
+                const buttonId = Number(document.getElementById('firstPressed').textContent);
+                const row = scoreTable.rows[buttonId - 1];
+                if (!row) {
+                    return;
+                }
                 const scoreCell = type === '正解' ? row.cells[1] : row.cells[2];
                 scoreCell.textContent = parseInt(scoreCell.textContent) + 1;
                 // 効果音
@@ -566,9 +632,9 @@
                     incorrectSound.play();
                 }
                 if (type === '不正解') {
-                    ranking_index++;
+                    ranking_index = this.nextValidRankingIndex(ranking_index + 1);
                     let next_button = ranking[ranking_index];
-                    if (next_button['buttonId'] != 0) {
+                    if (next_button) {
                         document.getElementById('firstPressed').textContent = next_button['buttonId'];
                         time_interval = 1000;
                     } else {
@@ -590,8 +656,16 @@
             displayRankings(rankings) {
                 // ランキング表示を更新
                 document.getElementById('pressedList').innerHTML = '';
+                if (!ranking[ranking_index] ||
+                    ranking[ranking_index].buttonId < 1 ||
+                    ranking[ranking_index].buttonId > this.channelCount) {
+                    ranking_index = this.nextValidRankingIndex(0);
+                    if (ranking_index < 0) {
+                        document.getElementById('firstPressed').textContent = '-';
+                    }
+                }
                 rankings.forEach((rank, index) => {
-                    if (rank.buttonId != 0) {
+                    if (rank.buttonId >= 1 && rank.buttonId <= this.channelCount) {
                         const item = document.createElement('li');
                         item.classList.add('collection-item');
                         item.textContent = `${circledNumbers[parseInt(rank.buttonId)]} - ${rank.timestamp / 1e6}秒`;
