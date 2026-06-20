@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>木苺式クイズ早押し機</title>
+    <title>木苺式クイズ早押し機 改1型</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
     <style>
@@ -210,7 +210,7 @@
         </div>
         <!-- タイトルとデバイス接続ボタン -->
         <div class="header">
-            <div class="header-title">木苺式クイズ早押し機</div>
+            <div class="header-title">木苺式クイズ早押し機 改1型</div>
             <button id="connectionButton" class="btn connection-button blue lighten-2 disconnected"
                 onclick="app.toggleConnection()"><i class="material-icons left">bluetooth</i>Bluetooth接続（未接続）</button>
         </div>
@@ -386,6 +386,8 @@
                 this.serviceUuid = "b8e06067-62ad-41ba-9231-206ae80ab551";
                 this.characteristicUuid = "f897177b-aee8-4767-8ecc-cc694fd5fce0";
                 this.pollingInterval = null;
+                this.gattOperation = Promise.resolve();
+                this.historyReadInProgress = false;
             }
 
             async connect() {
@@ -404,7 +406,25 @@
                 }
             }
 
+            disconnect() {
+                if (this.pollingInterval) {
+                    clearInterval(this.pollingInterval);
+                    this.pollingInterval = null;
+                }
+
+                if (this.picoDevice && this.picoDevice.gatt.connected) {
+                    this.picoDevice.gatt.disconnect();
+                }
+
+                this.characteristic = null;
+                this.picoDevice = null;
+            }
+
             startPolling() {
+                if (this.pollingInterval) {
+                    clearInterval(this.pollingInterval);
+                }
+
                 this.pollingInterval = setInterval(async () => {
                     if (this.characteristic) {
                         await this.getButtonPressHistory();
@@ -412,12 +432,25 @@
                 }, time_interval);
             }
 
+            async runGattOperation(operation) {
+                const nextOperation = this.gattOperation.catch(() => { }).then(operation);
+                this.gattOperation = nextOperation.catch(() => { });
+                return nextOperation;
+            }
+
             async getButtonPressHistory() {
+                if (this.historyReadInProgress || !this.characteristic) {
+                    return;
+                }
+
+                this.historyReadInProgress = true;
                 try {
-                    const value = await this.characteristic.readValue();
+                    const value = await this.runGattOperation(() => this.characteristic.readValue());
                     this.displayButtonPressHistory(value);
                 } catch (error) {
                     console.error("ボタン履歴の取得に失敗:", error);
+                } finally {
+                    this.historyReadInProgress = false;
                 }
             }
 
@@ -432,13 +465,30 @@
                 app.displayRankings(rankings);
             }
 
+            async sendCommand(command) {
+                if (!this.characteristic) {
+                    return;
+                }
+
+                const data = new TextEncoder().encode(command);
+                await this.runGattOperation(() => this.characteristic.writeValue(data));
+            }
+
             async sendResetCommand() {
                 try {
-                    const resetCommand = new Uint8Array([0x52]);
-                    await this.characteristic.writeValue(resetCommand);
+                    await this.sendCommand("R");
                 } catch (error) {
                     console.log(`リセットコマンドの送信に失敗:${error}\nリセットコマンドの再送信を行います`,);
                     // エラーを伝搬
+                    throw error;
+                }
+            }
+
+            async sendArmCommand() {
+                try {
+                    await this.sendCommand("ARM");
+                } catch (error) {
+                    console.error("ARMコマンドの送信に失敗:", error);
                     throw error;
                 }
             }
@@ -455,6 +505,7 @@
                 if (document.getElementById('connectionButton').classList.contains('disconnected')) {
                     await this.picoController.connect();
                 } else {
+                    this.picoController.disconnect();
                     this.updateConnectionUI(false);
                 }
             }
@@ -492,9 +543,10 @@
             }
 
             // ボタン押下順のエントリを追加
-            addPressedEntry() {
+            async addPressedEntry() {
                 questionSound.play();
-                this.resetPressedList(); // 早押しボタンを押した順番をリセット
+                await this.resetPressedList(); // 早押しボタンを押した順番をリセット
+                await this.picoController.sendArmCommand();
             }
 
             // スコアを更新する関数（正解・不正解のタイプに応じて）
