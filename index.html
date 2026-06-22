@@ -387,23 +387,28 @@
                 this.characteristic = null;
                 this.serviceUuid = "b8e06067-62ad-41ba-9231-206ae80ab551";
                 this.characteristicUuid = "f897177b-aee8-4767-8ecc-cc694fd5fce0";
+                this.fullServiceUuid = "46454f4e-452d-424c-452d-000000000001";
+                this.eventCharacteristicUuid = "46454f4e-452d-424c-452d-000000000002";
+                this.eventCharacteristic = null;
                 this.pollingInterval = null;
                 this.gattOperation = Promise.resolve();
                 this.historyReadInProgress = false;
                 this.deviceMode = "default";
                 this.channelCount = DEFAULT_CHANNEL_COUNT;
+                this.suppressedUiEvents = { CORRECT: 0, WRONG: 0 };
             }
 
             async connect() {
                 try {
                     this.picoDevice = await navigator.bluetooth.requestDevice({
                         acceptAllDevices: true,
-                        optionalServices: [this.serviceUuid]
+                        optionalServices: [this.serviceUuid, this.fullServiceUuid]
                     });
                     const server = await this.picoDevice.gatt.connect();
                     const service = await server.getPrimaryService(this.serviceUuid);
                     this.characteristic = await service.getCharacteristic(this.characteristicUuid);
                     this.detectDeviceModeFromName();
+                    await this.tryStartFullEventNotifications(server);
                     app.updateConnectionUI(true);
                     this.startPolling();
                 } catch (error) {
@@ -448,10 +453,26 @@
                 }
 
                 this.characteristic = null;
+                this.eventCharacteristic = null;
                 this.picoDevice = null;
                 this.deviceMode = "default";
                 this.channelCount = DEFAULT_CHANNEL_COUNT;
+                this.suppressedUiEvents = { CORRECT: 0, WRONG: 0 };
                 app.setChannelCount(this.channelCount, this.deviceMode);
+            }
+
+            async tryStartFullEventNotifications(server) {
+                try {
+                    const service = await server.getPrimaryService(this.fullServiceUuid);
+                    this.eventCharacteristic = await service.getCharacteristic(this.eventCharacteristicUuid);
+                    await this.eventCharacteristic.startNotifications();
+                    this.eventCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+                        this.handleFullEventNotification(event.target.value);
+                    });
+                } catch (error) {
+                    this.eventCharacteristic = null;
+                    console.warn("新型イベント通知の購読をスキップしました:", error);
+                }
             }
 
             startPolling() {
@@ -516,7 +537,7 @@
 
             async sendResetCommand() {
                 try {
-                    await this.sendCommand("R");
+                    await this.sendCommand(this.deviceMode === "legacy" ? "R" : "RESET_ROUND");
                 } catch (error) {
                     console.log(`リセットコマンドの送信に失敗:${error}\nリセットコマンドの再送信を行います`,);
                     // エラーを伝搬
@@ -531,6 +552,53 @@
                     console.error("ARMコマンドの送信に失敗:", error);
                     throw error;
                 }
+            }
+
+            async sendNewQuestionCommand() {
+                if (this.deviceMode === "legacy") {
+                    await this.sendResetCommand();
+                    await this.sendArmCommand();
+                    return;
+                }
+                try {
+                    await this.sendCommand("NEW_QUESTION");
+                } catch (error) {
+                    console.error("出題コマンドの送信に失敗:", error);
+                    throw error;
+                }
+            }
+
+            async sendUiScoreCommand(type) {
+                if (this.deviceMode === "legacy") {
+                    return;
+                }
+                const key = type === '正解' ? 'CORRECT' : 'WRONG';
+                const command = type === '正解' ? 'UI_CORRECT' : 'UI_WRONG';
+                this.suppressedUiEvents[key] += 1;
+                try {
+                    await this.sendCommand(command);
+                } catch (error) {
+                    this.suppressedUiEvents[key] = Math.max(0, this.suppressedUiEvents[key] - 1);
+                    throw error;
+                }
+            }
+
+            handleFullEventNotification(dataView) {
+                const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+                const line = new TextDecoder().decode(bytes).trim();
+                if (line === "FE,UI,CORRECT") {
+                    this.handleRemoteUiScore('正解', 'CORRECT');
+                } else if (line === "FE,UI,WRONG") {
+                    this.handleRemoteUiScore('不正解', 'WRONG');
+                }
+            }
+
+            handleRemoteUiScore(type, key) {
+                if (this.suppressedUiEvents[key] > 0) {
+                    this.suppressedUiEvents[key] -= 1;
+                    return;
+                }
+                app.updateScore(type, { notifyHardware: false });
             }
         }
 
@@ -622,12 +690,15 @@
             // ボタン押下順のエントリを追加
             async addPressedEntry() {
                 questionSound.play();
-                await this.resetPressedList(); // 早押しボタンを押した順番をリセット
-                await this.picoController.sendArmCommand();
+                this.resetPressedDisplay();
+                time_interval = 250;
+                ranking_index = 0;
+                this.time_from_reset = new Date().getTime();
+                await this.picoController.sendNewQuestionCommand();
             }
 
             // スコアを更新する関数（正解・不正解のタイプに応じて）
-            updateScore(type) {
+            updateScore(type, options = { notifyHardware: true }) {
                 // 早押しボタンが押されていない場合は何もしない
                 if (!ranking[ranking_index] || ranking[ranking_index]['buttonId'] == 0) {
                     return;
@@ -656,6 +727,11 @@
                         document.getElementById('firstPressed').textContent = '-';
                         time_interval = 250;
                     }
+                }
+                if (options.notifyHardware) {
+                    this.picoController.sendUiScoreCommand(type).catch((error) => {
+                        console.error(`${type}イベントの送信に失敗:`, error);
+                    });
                 }
             }
 
